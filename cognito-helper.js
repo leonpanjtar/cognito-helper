@@ -431,10 +431,10 @@ function CognitoHelper(config) {
         // send email with the link
         var url = 
           config.COGNITO_PASSWORD_RESET_URL.format({email: email, reset: r});
-        var body = config.COGNITO_PASSWORD_RESET_BODY.format({name: email});
-        var bodyTxt = body.concat('\n\n').concat(url);
+        var body = config.COGNITO_PASSWORD_RESET_BODY.format({name: email, url: url});
+        var bodyTxt = body; //.concat('\n\n').concat(url);
         var link = '<a href="{url}">{url}</a>'.format({url: url});
-        var bodyHtml = body.concat('<br/><br/>').concat(link);
+        var bodyHtml = body; //.concat('<br/><br/>').concat(link);
         
         var params = {
             Destination: { ToAddresses: [email] },
