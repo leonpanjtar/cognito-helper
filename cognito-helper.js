@@ -1,7 +1,7 @@
 /**
  * @module cognito-helper
  */
-require('dotenv').load();
+require('dotenv').load().config({silent: true});
 var sha256 = require('js-sha256').sha256;
 var _ = require('lodash');
 var async = require('async');
@@ -40,6 +40,10 @@ function CognitoHelper(config) {
   var encryptPassword = function(password) {
     return sha256(password);
   };
+
+  CognitoHelper.encryptPassword = function(password) {
+    return encryptPassword(password)
+  }
   
   var getRefreshTokenKey = function(provider) {
     return  'refresh' + provider;
@@ -1210,6 +1214,94 @@ function CognitoHelper(config) {
             }
           }
         });
+      }
+    });
+  };
+
+
+  CognitoHelper.loginFacebook = function(provider, token, clientId, redirectUri, callback) {
+    var accessTokenUrl = config.providers[provider].accessTokenUrl;
+    var peopleApiUrl = config.providers[provider].peopleApiUrl;
+    var clientSecret = config.providers[provider].client_secret;
+
+    logger.debug('token', token);
+    
+    var accessToken = token.accessToken;
+    var headers = { Authorization: 'Bearer ' + accessToken };
+    var refreshToken = token.refresh_token;
+    var expiresIn = token.expiresIn;
+    
+    // Step 2. Retrieve profile information about the current user.
+    request.get({ url: peopleApiUrl, headers: headers, json: true }, 
+        function(err, response, profile) {
+      if(err) {
+        callback (err);
+      }
+      else {
+        logger.debug('profile', profile);
+        
+        var norm = config.providers[provider].normalize(token, profile);
+        logger.debug('norm', norm);
+        
+        var idToken = norm.idToken;
+        var name = norm.name;
+        var email = norm.email;
+        
+        if(token.userID) {
+          // Step 3a. Link user accounts if passed userId.
+          // check if a federated user already exists
+          //existsFederated(provider, idToken, 
+          existsFederated(provider, token.userID, 
+              function(err, existsFederated) {
+            if(err) {
+              callback(err);
+            }
+            else if(existsFederated) {
+              callback({code: 409, 
+                error: 'There is already an account with '
+                  + provider + ' that belongs to you'});
+            }
+            else {
+              // check if a user exists with an email matching the one from
+              // federated profile
+              existsEmail(email, token.userID, 
+                  function(err, existsEmail) {
+                if(err) {
+                  callback(err);
+                }
+                else if(existsEmail) {
+                  callback({code: 409, 
+                    error: 'There is already an account with '
+                      + email + ' that belongs to you'});
+                }
+                else {
+                  // if no federated user nor matching email found, link
+                  CognitoHelper.link(token.userID, provider, idToken, 
+                      refreshToken, profile, function(err, data) {
+                    if(err) {
+                      callback(err);
+                    }
+                    else {
+                      callback(null, {id: token.userID, expiresIn: expiresIn});
+                    }
+                  });
+                }
+              });
+            }
+          });
+        } 
+        else {
+          // Step 3b. Create a new user account or return an existing one.
+          loginFederatedWithToken(provider, idToken, 
+              refreshToken, profile, name, email, function(err, user) {
+            if(err) {
+              callback(err);
+            }
+            else {
+              callback(null, {id: user.id, expiresIn: expiresIn});
+            }
+          });
+        }
       }
     });
   };
